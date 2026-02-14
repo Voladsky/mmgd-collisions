@@ -1,0 +1,28 @@
+{
+  "name": "collision-detection",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "coverage": "jest --coverage",
+    "start": "parcel index.html",
+    "test": "jest --verbose",
+    "watch": "jest --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmcs-gd/collision_detection_2022.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mmcs-gd/collision_detection_2022/issues"
+  },
+  "homepage": "https://github.com/mmcs-gd/collision_detection_2022#readme",
+  "devDependencies": {
+    "@babel/core": "^7.19.1",
+    "@parcel/babel-preset-env": "^2.13.3",
+    "babel-jest": "^29.0.3",
+    "jest": "^29.7.0",
+    "parcel": "^2.13.3"
+  }
+}
