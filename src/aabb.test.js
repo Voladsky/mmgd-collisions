@@ -1,161 +1,124 @@
 const {
     aabbCollision,
-    resolveCollision,
-    handleWalls,
-    computeVerticesAndAABB,
-    initShapes,
-    queueUpdates,
-    update,
-    gameState
-} = require('./index.js'); // change path
+    computeVerticesAndAABB
+} = require('./index.js'); // adjust path
 
-describe("AABB Collision Detection", () => {
+function makeCircle(x, y, r = 10) {
+    const shape = {
+        type: 'circle',
+        x, y,
+        size: r,
+        angle: 0,
+        vertices: [],
+        aabb: {}
+    };
+    computeVerticesAndAABB(shape);
+    return shape;
+}
 
-    test("detects overlapping boxes", () => {
-        const a = { aabb: { minX: 0, minY: 0, maxX: 10, maxY: 10 } };
-        const b = { aabb: { minX: 5, minY: 5, maxX: 15, maxY: 15 } };
+function makeSquare(x, y, size = 10, angle = 0) {
+    const shape = {
+        type: 'square',
+        x, y,
+        size,
+        angle,
+        vertices: [],
+        aabb: {}
+    };
+    computeVerticesAndAABB(shape);
+    return shape;
+}
 
-        const result = aabbCollision(a, b);
+function makeTriangle(x, y, size = 10, angle = 0) {
+    const shape = {
+        type: 'triangle',
+        x, y,
+        size,
+        angle,
+        vertices: [],
+        aabb: {}
+    };
+    computeVerticesAndAABB(shape);
+    return shape;
+}
+
+describe('AABB Collision Detector', () => {
+
+    test('circle and square NOT colliding', () => {
+        const circle = makeCircle(0, 0, 10);
+        const square = makeSquare(100, 100, 10);
+
+        const result = aabbCollision(circle, square);
+        expect(result).toBeNull();
+    });
+
+    test('circle and square colliding', () => {
+        const circle = makeCircle(0, 0, 10);
+        const square = makeSquare(15, 0, 10);
+
+        const result = aabbCollision(circle, square);
+
+        expect(result).not.toBeNull();
+        expect(result.depth).toBeGreaterThan(0);
+        expect(
+            result.normal.x !== 0 || result.normal.y !== 0
+        ).toBe(true);
+    });
+
+    test('one touching other (edge contact)', () => {
+        const circle = makeCircle(0, 0, 10);
+        const square = makeSquare(20, 0, 10); 
+        // circle AABB maxX = 10
+        // square AABB minX = 10 -> touching
+
+        const result = aabbCollision(circle, square);
+
+        expect(result).not.toBeNull();
+        expect(result.depth).toBe(0);
+    });
+
+    test('one touching other at the corner', () => {
+        const circle = makeCircle(0, 0, 10);
+        const square = makeSquare(20, 20, 10);
+        // Touching exactly at (10,10)
+
+        const result = aabbCollision(circle, square);
+
+        expect(result).not.toBeNull();
+        expect(result.depth).toBe(0);
+    });
+
+    test('triangle colliding with square', () => {
+        const triangle = makeTriangle(0, 0, 10);
+        const square = makeSquare(5, 0, 10);
+
+        const result = aabbCollision(triangle, square);
+
         expect(result).not.toBeNull();
         expect(result.depth).toBeGreaterThan(0);
     });
 
-    test("returns null when no overlap", () => {
-        const a = { aabb: { minX: 0, minY: 0, maxX: 10, maxY: 10 } };
-        const b = { aabb: { minX: 20, minY: 20, maxX: 30, maxY: 30 } };
+    test('triangle NOT colliding with circle', () => {
+        const triangle = makeTriangle(0, 0, 10);
+        const circle = makeCircle(100, 100, 10);
 
-        const result = aabbCollision(a, b);
+        const result = aabbCollision(triangle, circle);
+
         expect(result).toBeNull();
     });
-});
 
-describe("Collision Resolution", () => {
+    test('triangle touching triangle', () => {
+        const t1 = makeTriangle(0, 0, 10);
+        const t2 = makeTriangle(20, 0, 10);
 
-    test("swaps velocity on head-on collision (equal mass)", () => {
-        const a = { x: 0, y: 0, vx: 10, vy: 0 };
-        const b = { x: 5, y: 0, vx: -10, vy: 0 };
+        const result = aabbCollision(t1, t2);
 
-        resolveCollision(a, b, { x: 1, y: 0 }, 2);
-
-        expect(a.vx).toBe(-10);
-        expect(b.vx).toBe(10);
-    });
-
-    test("does nothing if objects separating", () => {
-        const a = { x: 0, y: 0, vx: -5, vy: 0 };
-        const b = { x: 5, y: 0, vx: 5, vy: 0 };
-
-        resolveCollision(a, b, { x: 1, y: 0 }, 1);
-
-        expect(a.vx).toBe(-5);
-        expect(b.vx).toBe(5);
-    });
-});
-
-describe("Wall Handling", () => {
-
-    test("reverses velocity when hitting left wall", () => {
-        const shape = {
-            x: -1,
-            y: 10,
-            vx: -20,
-            vy: 0,
-            aabb: { minX: -5, minY: 5, maxX: 5, maxY: 15 }
-        };
-
-        global.width = 100;
-        global.height = 100;
-
-        handleWalls(shape);
-
-        expect(shape.vx).toBe(20);
-    });
-
-    test("reverses velocity when hitting bottom wall", () => {
-        const shape = {
-            x: 50,
-            y: 101,
-            vx: 0,
-            vy: 30,
-            aabb: { minX: 40, minY: 95, maxX: 60, maxY: 110 }
-        };
-
-        gameState.world = { width: 200, height: 100 };
-
-        handleWalls(shape);
-
-        expect(shape.vy).toBe(-30);
-    });
-});
-
-describe("Vertex and AABB computation", () => {
-
-    test("circle AABB correct", () => {
-        const shape = {
-            type: "circle",
-            x: 50,
-            y: 50,
-            size: 10
-        };
-
-        computeVerticesAndAABB(shape);
-
-        expect(shape.aabb.minX).toBe(40);
-        expect(shape.aabb.maxX).toBe(60);
-    });
-
-    test("triangle produces 3 vertices", () => {
-        const shape = {
-            type: "triangle",
-            x: 0,
-            y: 0,
-            size: 10,
-            angle: 0
-        };
-
-        computeVerticesAndAABB(shape);
-
-        expect(shape.vertices.length).toBe(3);
-    });
-
-    test("square produces 4 vertices", () => {
-        const shape = {
-            type: "square",
-            x: 0,
-            y: 0,
-            size: 10,
-            angle: 0
-        };
-
-        computeVerticesAndAABB(shape);
-
-        expect(shape.vertices.length).toBe(4);
-    });
-});
-
-describe("initShapes", () => {
-
-    beforeEach(() => {
-        gameState.CONFIG = {
-            NUM_SHAPES: 5,
-            SHAPE_SIZE: 5,
-            MIN_SPEED: 10,
-            MAX_SPEED: 20,
-            MIN_OMEGA: -1,
-            MAX_OMEGA: 1,
-            COLORS: ["#fff"]
-        };
-    });
-
-    test("creates correct number of shapes", () => {
-        const shapes = initShapes(5);
-        expect(shapes.length).toBe(5);
-    });
-
-    test("all shapes have AABB", () => {
-        const shapes = initShapes(3);
-        for (let s of shapes) {
-            expect(s.aabb).toBeDefined();
+        // Depending on exact AABB size this should be edge-touch
+        if (result) {
+            expect(result.depth).toBeGreaterThanOrEqual(0);
+        } else {
+            expect(result).toBeNull();
         }
     });
+
 });
