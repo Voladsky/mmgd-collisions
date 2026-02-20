@@ -1,5 +1,7 @@
 # WARNING: 1300+ objects cause 1-3 FPS, so be prepared to wait for updates to change the slider and reload.
 
+**Honestly, numerous experiments show the FPS severely drops inbetween 1000 and 1200
+
 
 # Development
 
