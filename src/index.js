@@ -138,7 +138,6 @@ function update(lastTick) {
                 const coll = aabbCollision(shapes[i], shapes[j]);
                 if (coll) {
                     resolveCollision(shapes[i], shapes[j], coll.normal, coll.depth);
-                    gameState.collisionCount++;
                 }
             }
         }
@@ -167,8 +166,6 @@ function run(tFrame) {
     gameState.fpsTimer += deltaRender;
 
     gameState.frameCount++;
-    document.getElementById('collisions').innerHTML =
-        `💥 ${gameState.collisionCount}`
 
     if (gameState.fpsTimer >= 1000) {
         gameState.fps = gameState.frameCount;
@@ -310,8 +307,6 @@ function setup() {
     gameState.frameCount = 0;
     gameState.fpsTimer = 0;
 
-    gameState.collisionCount = 0;
-
     gameState.shapes = initShapes(gameState.CONFIG.NUM_SHAPES);
 
     document.getElementById('shapeCount').innerHTML = `🔷 ${gameState.CONFIG.NUM_SHAPES}`;
@@ -329,7 +324,6 @@ function setup() {
 
     document.getElementById('restartBtn').addEventListener('click', () => {
         gameState.shapes = initShapes(gameState.CONFIG.NUM_SHAPES);
-        gameState.collisionCount = 0;
     });
 }
 
