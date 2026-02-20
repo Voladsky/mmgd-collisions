@@ -1,3 +1,6 @@
+# WARNING: 1300+ objects cause 1-3 FPS, so be prepared to wait for updates to change the slider and reload.
+
+
 # Development
 
 ```

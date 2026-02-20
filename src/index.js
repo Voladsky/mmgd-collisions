@@ -314,7 +314,18 @@ function setup() {
 
     gameState.shapes = initShapes(gameState.CONFIG.NUM_SHAPES);
 
-    document.getElementById('shapeCount').innerHTML = `🔷 ${gameState.CONFIG.NUM_SHAPES}`
+    document.getElementById('shapeCount').innerHTML = `🔷 ${gameState.CONFIG.NUM_SHAPES}`;
+    
+    // Add slider functionality
+    const shapeSlider = document.getElementById('shapeSlider');
+    const sliderValue = document.getElementById('sliderValue');
+    
+    shapeSlider.addEventListener('input', (e) => {
+        const value = e.target.value;
+        sliderValue.textContent = value;
+        gameState.CONFIG.NUM_SHAPES = parseInt(value);
+        document.getElementById('shapeCount').innerHTML = `🔷 ${value}`;
+    });
 
     document.getElementById('restartBtn').addEventListener('click', () => {
         gameState.shapes = initShapes(gameState.CONFIG.NUM_SHAPES);

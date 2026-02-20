@@ -98,14 +98,22 @@
       <canvas id="cnvs" width="1200" height="800"></canvas>
       <div class="info-panel">
         <div class="stats">
-          <span id="shapeCount">🔷 1000</span>
+          <span id="shapeCount">🔷 900</span>
           <span id="fps">⏱️ 60 fps</span>
           <span id="collisions">💥 0</span>
         </div>
-        <button id="restartBtn">⟳ ПЕРЕЗАПУСК</button>\
+        <div style="display: flex; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #a8d8ff; font-size: 0.9rem;">Objects:</span>
+            <input type="range" id="shapeSlider" min="500" max="1500" value="900" step="10" style="width: 200px;">
+            <span id="sliderValue" style="color: #90e0ef; font-family: monospace; min-width: 40px;">900</span>
+          </div>
+          <button id="restartBtn">⟳ ПЕРЕЗАПУСК</button>
+        </div>
       </div>
     </div>
   </div>
   <script src="./src/index.js" type="module"></script>
 </body>
+
 </html>
