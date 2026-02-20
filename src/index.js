@@ -13,7 +13,7 @@ function queueUpdates(numTicks) {
 
 function draw() {
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.gameState.world.width, canvas.gameState.world.height);
+    ctx.clearRect(0, 0, gameState.world.width, gameState.world.height);
 
     for (let s of gameState.shapes) {
 
