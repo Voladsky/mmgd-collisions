@@ -47,31 +47,24 @@ function recomputeAll() {
 function aabbCollision(a, b) {
     const aa = a.aabb, bb = b.aabb;
 
-    // проверка перекрытия
     if (aa.maxX < bb.minX || aa.minX > bb.maxX ||
         aa.maxY < bb.minY || aa.minY > bb.maxY) {
         return null;
     }
 
-    // глубина проникновения по X и Y (положительные числа)
     const overlapX = Math.min(aa.maxX, bb.maxX) - Math.max(aa.minX, bb.minX);
     const overlapY = Math.min(aa.maxY, bb.maxY) - Math.max(aa.minY, bb.minY);
 
-    // выбираем ось с наименьшим перекрытием (нормаль будет вдоль этой оси)
     if (overlapX < overlapY) {
-        // нормаль по X: направление от A к B
         const normalX = (aa.minX < bb.minX) ? 1 : -1;
         return { normal: { x: normalX, y: 0 }, depth: overlapX };
     } else {
-        // нормаль по Y
         const normalY = (aa.minY < bb.minY) ? 1 : -1;
         return { normal: { x: 0, y: normalY }, depth: overlapY };
     }
 }
 
-// ---------- разрешение столкновения (упругое, равные массы) ----------
 function resolveCollision(a, b, normal, depth) {
-    // Раздвигаем фигуры
     const correctionX = normal.x * depth * 0.5;
     const correctionY = normal.y * depth * 0.5;
     a.x -= correctionX;
@@ -79,24 +72,18 @@ function resolveCollision(a, b, normal, depth) {
     b.x += correctionX;
     b.y += correctionY;
 
-    // Относительная скорость вдоль нормали
     const vRel = (b.vx - a.vx) * normal.x + (b.vy - a.vy) * normal.y;
 
-    // Если объекты уже разлетаются, ничего не делаем
     if (vRel > 0) return;
 
-    // ПРАВИЛЬНЫЙ импульс для упругого столкновения (коэффициент восстановления = 1)
-    // Для равных масс: обмен скоростями вдоль нормали
-    const impulse = -vRel; // Полный обмен, энергия сохраняется
+    const impulse = -vRel;
 
-    // Применяем импульс
     a.vx -= impulse * normal.x;
     a.vy -= impulse * normal.y;
     b.vx += impulse * normal.x;
     b.vy += impulse * normal.y;
 }
 
-// ---------- столкновения с границами экрана (на основе AABB) ----------
 function handleWalls(shape) {
     const aabb = shape.aabb;
     let dx = 0, dy = 0;
@@ -120,7 +107,7 @@ function update(lastTick) {
 
     const dt = gameState.tickLength / 1000;
     const shapes = gameState.shapes;
-    // 1. movement
+
     for (let s of shapes) {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
@@ -154,7 +141,6 @@ function update(lastTick) {
 function run(tFrame) {
     gameState.stopCycle = window.requestAnimationFrame(run);
 
-    // --- FPS CALCULATION ---
     if (!gameState.lastRender) {
         gameState.lastRender = tFrame;
     }
@@ -176,7 +162,6 @@ function run(tFrame) {
             `⏱️ ${gameState.fps} fps`;
     }
 
-    // --- FIXED TIMESTEP PART ---
     const nextTick = gameState.lastTick + gameState.tickLength;
     let numTicks = 0;
 
@@ -189,14 +174,8 @@ function run(tFrame) {
     draw();
 }
 
-
-function stopGame(handle) {
-    window.cancelAnimationFrame(handle);
-}
-
 function computeVerticesAndAABB(shape) {
     if (shape.type === 'circle') {
-        // AABB для круга — описанный квадрат
         const r = shape.size;
         shape.aabb = {
             minX: shape.x - r,
@@ -207,11 +186,10 @@ function computeVerticesAndAABB(shape) {
         return;
     }
 
-    // многоугольник: вершины в мировых координатах
     const verts = [];
     if (shape.type === 'triangle') {
         const side = 2 * shape.size;
-        const radius = side / Math.sqrt(3); // circumradius
+        const radius = side / Math.sqrt(3);
 
         for (let i = 0; i < 3; i++) {
             const ang = shape.angle + i * 2 * Math.PI / 3;
@@ -221,7 +199,7 @@ function computeVerticesAndAABB(shape) {
             });
         }
 
-    } else { // square
+    } else {
         const half = shape.size;
         const local = [
             { x: half, y: half },
@@ -230,7 +208,6 @@ function computeVerticesAndAABB(shape) {
             { x: half, y: -half }
         ];
         for (let p of local) {
-            // простой поворот вокруг центра
             const cos = Math.cos(shape.angle);
             const sin = Math.sin(shape.angle);
             const xr = p.x * cos - p.y * sin;
@@ -240,7 +217,6 @@ function computeVerticesAndAABB(shape) {
     }
     shape.vertices = verts;
 
-    // AABB по вершинам
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let v of verts) {
         minX = Math.min(minX, v.x);
@@ -311,7 +287,6 @@ function setup() {
 
     document.getElementById('shapeCount').innerHTML = `🔷 ${gameState.CONFIG.NUM_SHAPES}`;
     
-    // Add slider functionality
     const shapeSlider = document.getElementById('shapeSlider');
     const sliderValue = document.getElementById('sliderValue');
     

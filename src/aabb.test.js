@@ -1,7 +1,7 @@
 const {
     aabbCollision,
     computeVerticesAndAABB
-} = require('./index.js'); // adjust path
+} = require('./index.js');
 
 function makeCircle(x, y, r = 10) {
     const shape = {
@@ -113,7 +113,6 @@ describe('AABB Collision Detector', () => {
 
         const result = aabbCollision(t1, t2);
 
-        // Depending on exact AABB size this should be edge-touch
         if (result) {
             expect(result.depth).toBeGreaterThanOrEqual(0);
         } else {
