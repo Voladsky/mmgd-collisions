@@ -4,9 +4,8 @@ const canvas = typeof document !== "undefined"
 
 const gameState = {};
 
-// ==================== QuadTree Implementation ====================
 class QuadTree {
-    constructor(bounds, capacity = 8) {
+    constructor(bounds, capacity = 16) {
         this.bounds = bounds; // { minX, minY, maxX, maxY }
         this.capacity = capacity;
         this.shapes = [];
@@ -21,7 +20,9 @@ class QuadTree {
     }
 
     insert(shape) {
-        if (!this.intersects(shape.aabb, this.bounds)) return false;
+        const b = this.bounds;
+        const a = shape.aabb;
+        if (a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY) return false;
 
         if (this.shapes.length < this.capacity && !this.divided) {
             this.shapes.push(shape);
@@ -30,8 +31,8 @@ class QuadTree {
 
         if (!this.divided) this.subdivide();
 
-        for (let child of this.children) {
-            if (child.insert(shape)) return true;
+        for (let i = 0; i < this.children.length; i++) {
+            if (this.children[i].insert(shape)) return true;
         }
         return false;
     }
@@ -49,101 +50,107 @@ class QuadTree {
         ];
         this.divided = true;
 
-        // Re‑insert existing shapes into children
-        for (let s of this.shapes) {
-            for (let child of this.children) {
-                if (child.insert(s)) break;
+        const shapes = this.shapes;
+        for (let i = 0; i < shapes.length; i++) {
+            const s = shapes[i];
+            for (let j = 0; j < this.children.length; j++) {
+                if (this.children[j].insert(s)) break;
             }
         }
         this.shapes = [];
     }
 
     queryRange(aabb, result = []) {
-        if (!this.intersects(aabb, this.bounds)) return result;
+        const b = this.bounds;
+        if (aabb.maxX < b.minX || aabb.minX > b.maxX || aabb.maxY < b.minY || aabb.minY > b.maxY) return result;
 
         if (this.divided) {
-            for (let child of this.children) {
-                child.queryRange(aabb, result);
+            for (let i = 0; i < this.children.length; i++) {
+                this.children[i].queryRange(aabb, result);
             }
         } else {
-            for (let s of this.shapes) {
-                if (this.intersects(s.aabb, aabb)) {
+            const shapes = this.shapes;
+            for (let i = 0; i < shapes.length; i++) {
+                const s = shapes[i];
+                const sa = s.aabb;
+                if (!(sa.maxX < aabb.minX || sa.minX > aabb.maxX || sa.maxY < aabb.minY || sa.minY > aabb.maxY)) {
                     result.push(s);
                 }
             }
         }
         return result;
     }
-
-    intersects(a, b) {
-        return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
-    }
 }
 
-// ==================== SAT Collision Helpers ====================
-function projectPolygon(vertices, axis) {
+
+function projectPolygon(verts, axis, out) {
     let min = Infinity, max = -Infinity;
-    for (let v of vertices) {
-        const dot = v.x * axis.x + v.y * axis.y;
-        min = Math.min(min, dot);
-        max = Math.max(max, dot);
+    for (let i = 0; i < verts.length; i += 2) {
+        const dot = verts[i] * axis.x + verts[i+1] * axis.y;
+        if (dot < min) min = dot;
+        if (dot > max) max = dot;
     }
-    return { min, max };
+    out.min = min;
+    out.max = max;
 }
 
-function projectCircle(circle, axis) {
-    const centerDot = circle.x * axis.x + circle.y * axis.y;
-    return { min: centerDot - circle.size, max: centerDot + circle.size };
+function projectCircle(circle, axis, out) {
+    const dot = circle.x * axis.x + circle.y * axis.y;
+    out.min = dot - circle.size;
+    out.max = dot + circle.size;
 }
 
 function polygonPolygonSAT(polyA, polyB) {
     let overlap = Infinity;
     let smallestAxis = null;
 
-    const verticesA = polyA.vertices;
-    const verticesB = polyB.vertices;
+    const vertsA = polyA.vertices;
+    const vertsB = polyB.vertices;
+    const projA = { min: 0, max: 0 };
+    const projB = { min: 0, max: 0 };
 
-    // Axes from polyA
-    for (let i = 0; i < verticesA.length; i++) {
-        const j = (i + 1) % verticesA.length;
-        const edge = {
-            x: verticesA[j].x - verticesA[i].x,
-            y: verticesA[j].y - verticesA[i].y
-        };
-        let axis = { x: edge.y, y: -edge.x };
-        const len = Math.hypot(axis.x, axis.y);
-        if (len === 0) continue;
-        axis.x /= len; axis.y /= len;
+    // axes from A
+    for (let i = 0; i < vertsA.length; i += 2) {
+        const j = (i + 2) % vertsA.length;
+        const edgeX = vertsA[j] - vertsA[i];
+        const edgeY = vertsA[j+1] - vertsA[i+1];
+        let axisX = edgeY;
+        let axisY = -edgeX;
+        const lenSq = axisX*axisX + axisY*axisY;
+        if (lenSq === 0) continue;
+        const len = Math.sqrt(lenSq);
+        axisX /= len;
+        axisY /= len;
 
-        const projA = projectPolygon(verticesA, axis);
-        const projB = projectPolygon(verticesB, axis);
-        const o = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
-        if (o < 0) return null; // separation
-        if (o < overlap) {
-            overlap = o;
-            smallestAxis = { x: axis.x, y: axis.y };
-        }
-    }
-
-    // Axes from polyB
-    for (let i = 0; i < verticesB.length; i++) {
-        const j = (i + 1) % verticesB.length;
-        const edge = {
-            x: verticesB[j].x - verticesB[i].x,
-            y: verticesB[j].y - verticesB[i].y
-        };
-        let axis = { x: edge.y, y: -edge.x };
-        const len = Math.hypot(axis.x, axis.y);
-        if (len === 0) continue;
-        axis.x /= len; axis.y /= len;
-
-        const projA = projectPolygon(verticesA, axis);
-        const projB = projectPolygon(verticesB, axis);
+        projectPolygon(vertsA, {x: axisX, y: axisY}, projA);
+        projectPolygon(vertsB, {x: axisX, y: axisY}, projB);
         const o = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
         if (o < 0) return null;
         if (o < overlap) {
             overlap = o;
-            smallestAxis = { x: axis.x, y: axis.y };
+            smallestAxis = { x: axisX, y: axisY };
+        }
+    }
+
+    for (let i = 0; i < vertsB.length; i += 2) {
+        const j = (i + 2) % vertsB.length;
+        const edgeX = vertsB[j] - vertsB[i];
+        const edgeY = vertsB[j+1] - vertsB[i+1];
+        let axisX = edgeY;
+        let axisY = -edgeX;
+        const lenSq = axisX*axisX + axisY*axisY;
+        if (lenSq === 0) continue;
+        const len = Math.sqrt(lenSq);
+        axisX /= len;
+        axisY /= len;
+
+        projectPolygon(vertsA, {x: axisX, y: axisY}, projA);
+        projectPolygon(vertsB, {x: axisX, y: axisY}, projB);
+        const o = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
+        if (o < 0) return null;
+        if (o < overlap) {
+            overlap = o;
+            smallestAxis = { x: axisX, y: axisY };
         }
     }
 
@@ -153,60 +160,68 @@ function polygonPolygonSAT(polyA, polyB) {
 function circleCircleSAT(circA, circB) {
     const dx = circB.x - circA.x;
     const dy = circB.y - circA.y;
-    const dist = Math.hypot(dx, dy);
+    const distSq = dx*dx + dy*dy;
     const radiusSum = circA.size + circB.size;
-    if (dist >= radiusSum) return null;
+    if (distSq >= radiusSum * radiusSum) return null;
 
+    const dist = Math.sqrt(distSq);
     const depth = radiusSum - dist;
-    let normal = { x: dx / dist, y: dy / dist };
+    let normalX = dx / dist;
+    let normalY = dy / dist;
     if (dist === 0) {
-        normal = { x: 1, y: 0 }; // arbitrary
+        normalX = 1;
+        normalY = 0;
     }
-    // normal already points from A to B
-    return { axis: normal, depth };
+    return { axis: { x: normalX, y: normalY }, depth };
 }
 
 function circlePolygonSAT(circle, poly) {
     let overlap = Infinity;
     let smallestAxis = null;
-    const vertices = poly.vertices;
+    const verts = poly.vertices;
+    const projPoly = { min: 0, max: 0 };
+    const projCircle = { min: 0, max: 0 };
 
-    // Axes from polygon edges
-    for (let i = 0; i < vertices.length; i++) {
-        const j = (i + 1) % vertices.length;
-        const edge = {
-            x: vertices[j].x - vertices[i].x,
-            y: vertices[j].y - vertices[i].y
-        };
-        let axis = { x: edge.y, y: -edge.x };
-        const len = Math.hypot(axis.x, axis.y);
-        if (len === 0) continue;
-        axis.x /= len; axis.y /= len;
+    for (let i = 0; i < verts.length; i += 2) {
+        const j = (i + 2) % verts.length;
+        const edgeX = verts[j] - verts[i];
+        const edgeY = verts[j+1] - verts[i+1];
+        let axisX = edgeY;
+        let axisY = -edgeX;
+        const lenSq = axisX*axisX + axisY*axisY;
+        if (lenSq === 0) continue;
+        const len = Math.sqrt(lenSq);
+        axisX /= len;
+        axisY /= len;
 
-        const projPoly = projectPolygon(vertices, axis);
-        const projCircle = projectCircle(circle, axis);
+        projectPolygon(verts, {x: axisX, y: axisY}, projPoly);
+        projectCircle(circle, {x: axisX, y: axisY}, projCircle);
         const o = Math.min(projPoly.max, projCircle.max) - Math.max(projPoly.min, projCircle.min);
         if (o < 0) return null;
         if (o < overlap) {
             overlap = o;
-            smallestAxis = { x: axis.x, y: axis.y };
+            smallestAxis = { x: axisX, y: axisY };
         }
     }
 
-    // Axes from circle center to polygon vertices
-    for (let v of vertices) {
-        let axis = { x: v.x - circle.x, y: v.y - circle.y };
-        const len = Math.hypot(axis.x, axis.y);
-        if (len === 0) continue;
-        axis.x /= len; axis.y /= len;
+    for (let i = 0; i < verts.length; i += 2) {
+        const vx = verts[i];
+        const vy = verts[i+1];
+        let axisX = vx - circle.x;
+        let axisY = vy - circle.y;
+        const lenSq = axisX*axisX + axisY*axisY;
+        if (lenSq === 0) continue;
+        const len = Math.sqrt(lenSq);
+        axisX /= len;
+        axisY /= len;
 
-        const projPoly = projectPolygon(vertices, axis);
-        const projCircle = projectCircle(circle, axis);
+        projectPolygon(verts, {x: axisX, y: axisY}, projPoly);
+        projectCircle(circle, {x: axisX, y: axisY}, projCircle);
         const o = Math.min(projPoly.max, projCircle.max) - Math.max(projPoly.min, projCircle.min);
         if (o < 0) return null;
         if (o < overlap) {
             overlap = o;
-            smallestAxis = { x: axis.x, y: axis.y };
+            smallestAxis = { x: axisX, y: axisY };
         }
     }
 
@@ -222,7 +237,6 @@ function satCollision(a, b) {
     } else if (a.type !== 'circle' && b.type === 'circle') {
         result = circlePolygonSAT(b, a);
         if (result) {
-            // flip because we want normal from a (poly) to b (circle)
             result.axis.x *= -1;
             result.axis.y *= -1;
         }
@@ -232,9 +246,9 @@ function satCollision(a, b) {
 
     if (!result) return null;
 
-    // Ensure normal points from a to b
-    const dir = { x: b.x - a.x, y: b.y - a.y };
-    if (dir.x * result.axis.x + dir.y * result.axis.y < 0) {
+    const dirX = b.x - a.x;
+    const dirY = b.y - a.y;
+    if (dirX * result.axis.x + dirY * result.axis.y < 0) {
         result.axis.x *= -1;
         result.axis.y *= -1;
     }
@@ -242,7 +256,6 @@ function satCollision(a, b) {
     return { normal: result.axis, depth: result.depth };
 }
 
-// ==================== Existing Helper Functions ====================
 function queueUpdates(numTicks) {
     for (let i = 0; i < numTicks; i++) {
         gameState.lastTick = gameState.lastTick + gameState.tickLength;
@@ -254,7 +267,9 @@ function draw() {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, gameState.world.width, gameState.world.height);
 
-    for (let s of gameState.shapes) {
+    const shapes = gameState.shapes;
+    for (let i = 0; i < shapes.length; i++) {
+        const s = shapes[i];
         ctx.fillStyle = s.color;
         ctx.strokeStyle = '#ffffff';
 
@@ -264,10 +279,11 @@ function draw() {
             ctx.fill();
             ctx.stroke();
         } else {
+            const verts = s.vertices;
             ctx.beginPath();
-            ctx.moveTo(s.vertices[0].x, s.vertices[0].y);
-            for (let k = 1; k < s.vertices.length; k++) {
-                ctx.lineTo(s.vertices[k].x, s.vertices[k].y);
+            ctx.moveTo(verts[0], verts[1]);
+            for (let j = 2; j < verts.length; j += 2) {
+                ctx.lineTo(verts[j], verts[j+1]);
             }
             ctx.closePath();
             ctx.fill();
@@ -277,8 +293,9 @@ function draw() {
 }
 
 function recomputeAll() {
-    for (let s of gameState.shapes) {
-        computeVerticesAndAABB(s);
+    const shapes = gameState.shapes;
+    for (let i = 0; i < shapes.length; i++) {
+        computeVerticesAndAABB(shapes[i]);
     }
 }
 
@@ -319,12 +336,12 @@ function handleWalls(shape) {
     }
 }
 
-// ==================== Updated Update Function ====================
 function update(lastTick) {
     const dt = gameState.tickLength / 1000;
     const shapes = gameState.shapes;
 
-    for (let s of shapes) {
+    for (let i = 0; i < shapes.length; i++) {
+        const s = shapes[i];
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.angle += s.omega * dt;
@@ -332,27 +349,22 @@ function update(lastTick) {
 
     recomputeAll();
 
-    const iterations = 2;
-    const worldBounds = {
-        minX: 0,
-        minY: 0,
-        maxX: gameState.world.width,
-        maxY: gameState.world.height
-    };
+    const iterations = 1;
+    const worldBounds = gameState.worldBounds;
 
     for (let iter = 0; iter < iterations; iter++) {
-        // Build quadtree for broad phase
-        const qt = new QuadTree(worldBounds, 4);
-        for (let s of shapes) {
-            qt.insert(s);
+        const qt = gameState.quadTree;
+        qt.clear();
+        for (let i = 0; i < shapes.length; i++) {
+            qt.insert(shapes[i]);
         }
 
-        // Narrow phase with SAT
         for (let i = 0; i < shapes.length; i++) {
             const shapeA = shapes[i];
             const candidates = qt.queryRange(shapeA.aabb);
-            for (let shapeB of candidates) {
-                if (shapeB.index <= i) continue; // avoid duplicate pairs and self
+            for (let j = 0; j < candidates.length; j++) {
+                const shapeB = candidates[j];
+                if (shapeB.index <= i) continue;
                 const coll = satCollision(shapeA, shapeB);
                 if (coll) {
                     resolveCollision(shapeA, shapeB, coll.normal, coll.depth);
@@ -360,9 +372,8 @@ function update(lastTick) {
             }
         }
 
-        // Wall handling
-        for (let s of shapes) {
-            handleWalls(s);
+        for (let i = 0; i < shapes.length; i++) {
+            handleWalls(shapes[i]);
         }
 
         recomputeAll();
@@ -400,73 +411,85 @@ function run(tFrame) {
 }
 
 function computeVerticesAndAABB(shape) {
+    const aabb = shape.aabb;
     if (shape.type === 'circle') {
         const r = shape.size;
-        shape.aabb = {
-            minX: shape.x - r,
-            minY: shape.y - r,
-            maxX: shape.x + r,
-            maxY: shape.y + r
-        };
+        aabb.minX = shape.x - r;
+        aabb.minY = shape.y - r;
+        aabb.maxX = shape.x + r;
+        aabb.maxY = shape.y + r;
         return;
     }
 
-    const verts = [];
+    let verts = shape.vertices;
     if (shape.type === 'triangle') {
         const side = 2 * shape.size;
         const radius = side / Math.sqrt(3);
-
+        const angle = shape.angle;
+        const x0 = shape.x, y0 = shape.y;
+        // reuse or create array of length 6
+        if (!verts || verts.length !== 6) verts = shape.vertices = new Array(6);
         for (let i = 0; i < 3; i++) {
-            const ang = shape.angle + i * 2 * Math.PI / 3;
-            verts.push({
-                x: shape.x + radius * Math.cos(ang),
-                y: shape.y + radius * Math.sin(ang)
-            });
+            const ang = angle + i * 2 * Math.PI / 3;
+            verts[i*2] = x0 + radius * Math.cos(ang);
+            verts[i*2+1] = y0 + radius * Math.sin(ang);
         }
     } else { // square
         const half = shape.size;
+        const cos = Math.cos(shape.angle);
+        const sin = Math.sin(shape.angle);
+        const x0 = shape.x, y0 = shape.y;
         const local = [
-            { x: half, y: half },
-            { x: -half, y: half },
-            { x: -half, y: -half },
-            { x: half, y: -half }
+            half, half,
+            -half, half,
+            -half, -half,
+            half, -half
         ];
-        for (let p of local) {
-            const cos = Math.cos(shape.angle);
-            const sin = Math.sin(shape.angle);
-            const xr = p.x * cos - p.y * sin;
-            const yr = p.x * sin + p.y * cos;
-            verts.push({ x: shape.x + xr, y: shape.y + yr });
+        if (!verts || verts.length !== 8) verts = shape.vertices = new Array(8);
+        for (let i = 0; i < 8; i += 2) {
+            const lx = local[i];
+            const ly = local[i+1];
+            const xr = lx * cos - ly * sin;
+            const yr = lx * sin + ly * cos;
+            verts[i] = x0 + xr;
+            verts[i+1] = y0 + yr;
         }
     }
     shape.vertices = verts;
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let v of verts) {
-        minX = Math.min(minX, v.x);
-        minY = Math.min(minY, v.y);
-        maxX = Math.max(maxX, v.x);
-        maxY = Math.max(maxY, v.y);
+    for (let i = 0; i < verts.length; i += 2) {
+        const vx = verts[i];
+        const vy = verts[i+1];
+        if (vx < minX) minX = vx;
+        if (vy < minY) minY = vy;
+        if (vx > maxX) maxX = vx;
+        if (vy > maxY) maxY = vy;
     }
-    shape.aabb = { minX, minY, maxX, maxY };
+    aabb.minX = minX;
+    aabb.minY = minY;
+    aabb.maxX = maxX;
+    aabb.maxY = maxY;
 }
 
 gameState.world = { width: 1200, height: 800 };
+gameState.worldBounds = { minX: 0, minY: 0, maxX: 1200, maxY: 800 };
 
 function initShapes(count) {
     const newShapes = [];
     const types = ['circle', 'triangle', 'square'];
+    const cfg = gameState.CONFIG;
     for (let i = 0; i < count; i++) {
         const type = types[Math.floor(Math.random() * types.length)];
-        const x = Math.random() * (gameState.world.width - 2 * gameState.CONFIG.SHAPE_SIZE) + gameState.CONFIG.SHAPE_SIZE;
-        const y = Math.random() * (gameState.world.height - 2 * gameState.CONFIG.SHAPE_SIZE) + gameState.CONFIG.SHAPE_SIZE;
+        const x = Math.random() * (gameState.world.width - 2 * cfg.SHAPE_SIZE) + cfg.SHAPE_SIZE;
+        const y = Math.random() * (gameState.world.height - 2 * cfg.SHAPE_SIZE) + cfg.SHAPE_SIZE;
         const angle = Math.random() * 2 * Math.PI;
-        const speed = gameState.CONFIG.MIN_SPEED + Math.random() * (gameState.CONFIG.MAX_SPEED - gameState.CONFIG.MIN_SPEED);
+        const speed = cfg.MIN_SPEED + Math.random() * (cfg.MAX_SPEED - cfg.MIN_SPEED);
         const dir = Math.random() * 2 * Math.PI;
         const vx = Math.cos(dir) * speed;
         const vy = Math.sin(dir) * speed;
-        const omega = gameState.CONFIG.MIN_OMEGA + Math.random() * (gameState.CONFIG.MAX_OMEGA - gameState.CONFIG.MIN_OMEGA);
-        const color = gameState.CONFIG.COLORS[Math.floor(Math.random() * gameState.CONFIG.COLORS.length)];
+        const omega = cfg.MIN_OMEGA + Math.random() * (cfg.MAX_OMEGA - cfg.MIN_OMEGA);
+        const color = cfg.COLORS[Math.floor(Math.random() * cfg.COLORS.length)];
 
         const shape = {
             type,
@@ -474,10 +497,10 @@ function initShapes(count) {
             vx, vy,
             angle,
             omega,
-            size: gameState.CONFIG.SHAPE_SIZE,
+            size: cfg.SHAPE_SIZE,
             color,
-            index: i, // store index for duplicate avoidance
-            vertices: [],
+            index: i,
+            vertices: type === 'circle' ? null : [],
             aabb: { minX: 0, minY: 0, maxX: 0, maxY: 0 }
         };
         computeVerticesAndAABB(shape);
@@ -489,7 +512,7 @@ function initShapes(count) {
 function setup() {
     gameState.CONFIG = {
         NUM_SHAPES: 900,
-        SHAPE_SIZE: 4,
+        SHAPE_SIZE: 3,
         MIN_SPEED: 40,
         MAX_SPEED: 160,
         MIN_OMEGA: -3.0,
@@ -505,6 +528,7 @@ function setup() {
     gameState.fpsTimer = 0;
 
     gameState.shapes = initShapes(gameState.CONFIG.NUM_SHAPES);
+    gameState.quadTree = new QuadTree(gameState.worldBounds, 16);
 
     document.getElementById('shapeCount').innerHTML = `🔷 ${gameState.CONFIG.NUM_SHAPES}`;
 
@@ -530,7 +554,6 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 
 if (typeof module !== "undefined") {
     module.exports = {
-        // Export updated functions if needed for testing
         satCollision,
         resolveCollision,
         handleWalls,
