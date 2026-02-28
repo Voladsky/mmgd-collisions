@@ -4,10 +4,249 @@ const canvas = typeof document !== "undefined"
 
 const gameState = {};
 
+// ==================== QuadTree Implementation ====================
+class QuadTree {
+    constructor(bounds, capacity = 8) {
+        this.bounds = bounds; // { minX, minY, maxX, maxY }
+        this.capacity = capacity;
+        this.shapes = [];
+        this.divided = false;
+        this.children = [];
+    }
+
+    clear() {
+        this.shapes = [];
+        this.divided = false;
+        this.children = [];
+    }
+
+    insert(shape) {
+        if (!this.intersects(shape.aabb, this.bounds)) return false;
+
+        if (this.shapes.length < this.capacity && !this.divided) {
+            this.shapes.push(shape);
+            return true;
+        }
+
+        if (!this.divided) this.subdivide();
+
+        for (let child of this.children) {
+            if (child.insert(shape)) return true;
+        }
+        return false;
+    }
+
+    subdivide() {
+        const b = this.bounds;
+        const midX = (b.minX + b.maxX) / 2;
+        const midY = (b.minY + b.maxY) / 2;
+
+        this.children = [
+            new QuadTree({ minX: b.minX, minY: b.minY, maxX: midX, maxY: midY }, this.capacity),
+            new QuadTree({ minX: midX, minY: b.minY, maxX: b.maxX, maxY: midY }, this.capacity),
+            new QuadTree({ minX: b.minX, minY: midY, maxX: midX, maxY: b.maxY }, this.capacity),
+            new QuadTree({ minX: midX, minY: midY, maxX: b.maxX, maxY: b.maxY }, this.capacity)
+        ];
+        this.divided = true;
+
+        // Re‑insert existing shapes into children
+        for (let s of this.shapes) {
+            for (let child of this.children) {
+                if (child.insert(s)) break;
+            }
+        }
+        this.shapes = [];
+    }
+
+    queryRange(aabb, result = []) {
+        if (!this.intersects(aabb, this.bounds)) return result;
+
+        if (this.divided) {
+            for (let child of this.children) {
+                child.queryRange(aabb, result);
+            }
+        } else {
+            for (let s of this.shapes) {
+                if (this.intersects(s.aabb, aabb)) {
+                    result.push(s);
+                }
+            }
+        }
+        return result;
+    }
+
+    intersects(a, b) {
+        return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+    }
+}
+
+// ==================== SAT Collision Helpers ====================
+function projectPolygon(vertices, axis) {
+    let min = Infinity, max = -Infinity;
+    for (let v of vertices) {
+        const dot = v.x * axis.x + v.y * axis.y;
+        min = Math.min(min, dot);
+        max = Math.max(max, dot);
+    }
+    return { min, max };
+}
+
+function projectCircle(circle, axis) {
+    const centerDot = circle.x * axis.x + circle.y * axis.y;
+    return { min: centerDot - circle.size, max: centerDot + circle.size };
+}
+
+function polygonPolygonSAT(polyA, polyB) {
+    let overlap = Infinity;
+    let smallestAxis = null;
+
+    const verticesA = polyA.vertices;
+    const verticesB = polyB.vertices;
+
+    // Axes from polyA
+    for (let i = 0; i < verticesA.length; i++) {
+        const j = (i + 1) % verticesA.length;
+        const edge = {
+            x: verticesA[j].x - verticesA[i].x,
+            y: verticesA[j].y - verticesA[i].y
+        };
+        let axis = { x: edge.y, y: -edge.x };
+        const len = Math.hypot(axis.x, axis.y);
+        if (len === 0) continue;
+        axis.x /= len; axis.y /= len;
+
+        const projA = projectPolygon(verticesA, axis);
+        const projB = projectPolygon(verticesB, axis);
+        const o = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
+        if (o < 0) return null; // separation
+        if (o < overlap) {
+            overlap = o;
+            smallestAxis = { x: axis.x, y: axis.y };
+        }
+    }
+
+    // Axes from polyB
+    for (let i = 0; i < verticesB.length; i++) {
+        const j = (i + 1) % verticesB.length;
+        const edge = {
+            x: verticesB[j].x - verticesB[i].x,
+            y: verticesB[j].y - verticesB[i].y
+        };
+        let axis = { x: edge.y, y: -edge.x };
+        const len = Math.hypot(axis.x, axis.y);
+        if (len === 0) continue;
+        axis.x /= len; axis.y /= len;
+
+        const projA = projectPolygon(verticesA, axis);
+        const projB = projectPolygon(verticesB, axis);
+        const o = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
+        if (o < 0) return null;
+        if (o < overlap) {
+            overlap = o;
+            smallestAxis = { x: axis.x, y: axis.y };
+        }
+    }
+
+    return { axis: smallestAxis, depth: overlap };
+}
+
+function circleCircleSAT(circA, circB) {
+    const dx = circB.x - circA.x;
+    const dy = circB.y - circA.y;
+    const dist = Math.hypot(dx, dy);
+    const radiusSum = circA.size + circB.size;
+    if (dist >= radiusSum) return null;
+
+    const depth = radiusSum - dist;
+    let normal = { x: dx / dist, y: dy / dist };
+    if (dist === 0) {
+        normal = { x: 1, y: 0 }; // arbitrary
+    }
+    // normal already points from A to B
+    return { axis: normal, depth };
+}
+
+function circlePolygonSAT(circle, poly) {
+    let overlap = Infinity;
+    let smallestAxis = null;
+    const vertices = poly.vertices;
+
+    // Axes from polygon edges
+    for (let i = 0; i < vertices.length; i++) {
+        const j = (i + 1) % vertices.length;
+        const edge = {
+            x: vertices[j].x - vertices[i].x,
+            y: vertices[j].y - vertices[i].y
+        };
+        let axis = { x: edge.y, y: -edge.x };
+        const len = Math.hypot(axis.x, axis.y);
+        if (len === 0) continue;
+        axis.x /= len; axis.y /= len;
+
+        const projPoly = projectPolygon(vertices, axis);
+        const projCircle = projectCircle(circle, axis);
+        const o = Math.min(projPoly.max, projCircle.max) - Math.max(projPoly.min, projCircle.min);
+        if (o < 0) return null;
+        if (o < overlap) {
+            overlap = o;
+            smallestAxis = { x: axis.x, y: axis.y };
+        }
+    }
+
+    // Axes from circle center to polygon vertices
+    for (let v of vertices) {
+        let axis = { x: v.x - circle.x, y: v.y - circle.y };
+        const len = Math.hypot(axis.x, axis.y);
+        if (len === 0) continue;
+        axis.x /= len; axis.y /= len;
+
+        const projPoly = projectPolygon(vertices, axis);
+        const projCircle = projectCircle(circle, axis);
+        const o = Math.min(projPoly.max, projCircle.max) - Math.max(projPoly.min, projCircle.min);
+        if (o < 0) return null;
+        if (o < overlap) {
+            overlap = o;
+            smallestAxis = { x: axis.x, y: axis.y };
+        }
+    }
+
+    return { axis: smallestAxis, depth: overlap };
+}
+
+function satCollision(a, b) {
+    let result = null;
+    if (a.type === 'circle' && b.type === 'circle') {
+        result = circleCircleSAT(a, b);
+    } else if (a.type === 'circle' && b.type !== 'circle') {
+        result = circlePolygonSAT(a, b);
+    } else if (a.type !== 'circle' && b.type === 'circle') {
+        result = circlePolygonSAT(b, a);
+        if (result) {
+            // flip because we want normal from a (poly) to b (circle)
+            result.axis.x *= -1;
+            result.axis.y *= -1;
+        }
+    } else {
+        result = polygonPolygonSAT(a, b);
+    }
+
+    if (!result) return null;
+
+    // Ensure normal points from a to b
+    const dir = { x: b.x - a.x, y: b.y - a.y };
+    if (dir.x * result.axis.x + dir.y * result.axis.y < 0) {
+        result.axis.x *= -1;
+        result.axis.y *= -1;
+    }
+
+    return { normal: result.axis, depth: result.depth };
+}
+
+// ==================== Existing Helper Functions ====================
 function queueUpdates(numTicks) {
     for (let i = 0; i < numTicks; i++) {
-        gameState.lastTick = gameState.lastTick + gameState.tickLength
-        update(gameState.lastTick)
+        gameState.lastTick = gameState.lastTick + gameState.tickLength;
+        update(gameState.lastTick);
     }
 }
 
@@ -16,7 +255,6 @@ function draw() {
     ctx.clearRect(0, 0, gameState.world.width, gameState.world.height);
 
     for (let s of gameState.shapes) {
-
         ctx.fillStyle = s.color;
         ctx.strokeStyle = '#ffffff';
 
@@ -44,26 +282,6 @@ function recomputeAll() {
     }
 }
 
-function aabbCollision(a, b) {
-    const aa = a.aabb, bb = b.aabb;
-
-    if (aa.maxX < bb.minX || aa.minX > bb.maxX ||
-        aa.maxY < bb.minY || aa.minY > bb.maxY) {
-        return null;
-    }
-
-    const overlapX = Math.min(aa.maxX, bb.maxX) - Math.max(aa.minX, bb.minX);
-    const overlapY = Math.min(aa.maxY, bb.maxY) - Math.max(aa.minY, bb.minY);
-
-    if (overlapX < overlapY) {
-        const normalX = (aa.minX < bb.minX) ? 1 : -1;
-        return { normal: { x: normalX, y: 0 }, depth: overlapX };
-    } else {
-        const normalY = (aa.minY < bb.minY) ? 1 : -1;
-        return { normal: { x: 0, y: normalY }, depth: overlapY };
-    }
-}
-
 function resolveCollision(a, b, normal, depth) {
     const correctionX = normal.x * depth * 0.5;
     const correctionY = normal.y * depth * 0.5;
@@ -73,11 +291,9 @@ function resolveCollision(a, b, normal, depth) {
     b.y += correctionY;
 
     const vRel = (b.vx - a.vx) * normal.x + (b.vy - a.vy) * normal.y;
-
     if (vRel > 0) return;
 
     const impulse = -vRel;
-
     a.vx -= impulse * normal.x;
     a.vy -= impulse * normal.y;
     b.vx += impulse * normal.x;
@@ -103,8 +319,8 @@ function handleWalls(shape) {
     }
 }
 
+// ==================== Updated Update Function ====================
 function update(lastTick) {
-
     const dt = gameState.tickLength / 1000;
     const shapes = gameState.shapes;
 
@@ -117,18 +333,34 @@ function update(lastTick) {
     recomputeAll();
 
     const iterations = 2;
+    const worldBounds = {
+        minX: 0,
+        minY: 0,
+        maxX: gameState.world.width,
+        maxY: gameState.world.height
+    };
 
     for (let iter = 0; iter < iterations; iter++) {
+        // Build quadtree for broad phase
+        const qt = new QuadTree(worldBounds, 4);
+        for (let s of shapes) {
+            qt.insert(s);
+        }
 
+        // Narrow phase with SAT
         for (let i = 0; i < shapes.length; i++) {
-            for (let j = i + 1; j < shapes.length; j++) {
-                const coll = aabbCollision(shapes[i], shapes[j]);
+            const shapeA = shapes[i];
+            const candidates = qt.queryRange(shapeA.aabb);
+            for (let shapeB of candidates) {
+                if (shapeB.index <= i) continue; // avoid duplicate pairs and self
+                const coll = satCollision(shapeA, shapeB);
                 if (coll) {
-                    resolveCollision(shapes[i], shapes[j], coll.normal, coll.depth);
+                    resolveCollision(shapeA, shapeB, coll.normal, coll.depth);
                 }
             }
         }
 
+        // Wall handling
         for (let s of shapes) {
             handleWalls(s);
         }
@@ -136,7 +368,6 @@ function update(lastTick) {
         recomputeAll();
     }
 }
-
 
 function run(tFrame) {
     gameState.stopCycle = window.requestAnimationFrame(run);
@@ -146,25 +377,19 @@ function run(tFrame) {
     }
 
     const deltaRender = tFrame - gameState.lastRender;
-
     gameState.lastRender = tFrame;
-
     gameState.fpsTimer += deltaRender;
-
     gameState.frameCount++;
 
     if (gameState.fpsTimer >= 1000) {
         gameState.fps = gameState.frameCount;
         gameState.frameCount = 0;
         gameState.fpsTimer = 0;
-
-        document.getElementById('fps').innerHTML =
-            `⏱️ ${gameState.fps} fps`;
+        document.getElementById('fps').innerHTML = `⏱️ ${gameState.fps} fps`;
     }
 
     const nextTick = gameState.lastTick + gameState.tickLength;
     let numTicks = 0;
-
     if (tFrame > nextTick) {
         const timeSinceTick = tFrame - gameState.lastTick;
         numTicks = Math.floor(timeSinceTick / gameState.tickLength);
@@ -198,8 +423,7 @@ function computeVerticesAndAABB(shape) {
                 y: shape.y + radius * Math.sin(ang)
             });
         }
-
-    } else {
+    } else { // square
         const half = shape.size;
         const local = [
             { x: half, y: half },
@@ -227,11 +451,7 @@ function computeVerticesAndAABB(shape) {
     shape.aabb = { minX, minY, maxX, maxY };
 }
 
-gameState.world = {
-    width: 1200,
-    height: 800
-};
-
+gameState.world = { width: 1200, height: 800 };
 
 function initShapes(count) {
     const newShapes = [];
@@ -256,6 +476,7 @@ function initShapes(count) {
             omega,
             size: gameState.CONFIG.SHAPE_SIZE,
             color,
+            index: i, // store index for duplicate avoidance
             vertices: [],
             aabb: { minX: 0, minY: 0, maxX: 0, maxY: 0 }
         };
@@ -286,10 +507,10 @@ function setup() {
     gameState.shapes = initShapes(gameState.CONFIG.NUM_SHAPES);
 
     document.getElementById('shapeCount').innerHTML = `🔷 ${gameState.CONFIG.NUM_SHAPES}`;
-    
+
     const shapeSlider = document.getElementById('shapeSlider');
     const sliderValue = document.getElementById('sliderValue');
-    
+
     shapeSlider.addEventListener('input', (e) => {
         const value = e.target.value;
         sliderValue.textContent = value;
@@ -309,7 +530,8 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 
 if (typeof module !== "undefined") {
     module.exports = {
-        aabbCollision,
+        // Export updated functions if needed for testing
+        satCollision,
         resolveCollision,
         handleWalls,
         computeVerticesAndAABB,
@@ -319,4 +541,3 @@ if (typeof module !== "undefined") {
         gameState
     };
 }
-
